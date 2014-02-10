@@ -1,0 +1,88 @@
+{{#controller_client_decls}}
+invariant_failed: boolean;
+{{/controller_client_decls}}
+
+{{#controller_procs}}
+--------------------------------------------------------------------------
+
+-- controller
+
+--------------------------------------------------------------------------
+
+procedure controller(packet: data_packet_t; which_switch: Switch_ids);
+  var rule1: rule_t;
+  var rule2: rule_t;
+  var rule3: rule_t;
+  var this_switch: switch_t;
+begin
+  this_switch := switches[which_switch];
+  
+  init_rule(rule1);
+  rule1.ssh := true;
+  rule1.forward_port := -1;
+  rule1.priority := 10;
+
+  init_rule(rule2);
+  rule2.port := 1;
+  rule2.forward_port := 2;
+  rule2.priority := 1;
+
+  init_rule(rule3);
+  rule3.port := 2;
+  rule3.forward_port := 1;
+  rule3.priority := 1;
+    
+  send_rule(rule1, which_switch);
+  send_rule(rule2, which_switch);
+  send_rule(rule3, which_switch);
+
+  barrier(which_switch);
+  
+  if packet.ssh then
+    drop(packet, which_switch);
+  elsif packet.port = 1 then
+    forward(packet, 2, which_switch);
+  else
+    forward(packet, 1, which_switch);
+  endif;
+end;
+{{/controller_procs}}
+
+{{#client_procs}}
+--------------------------------------------------------------------------
+
+-- clients queue
+
+--------------------------------------------------------------------------
+
+procedure queue_packet(ssh: boolean; port: port_t; which_switch: Switch_ids);
+var packet: data_packet_t;
+begin
+  packet.ssh := ssh;
+  packet.port := port;
+  enqueue_data(packet, switches[which_switch].data_queue);
+end;
+
+procedure client_packet_received(packet: data_packet_t; which_client: Client_ids);
+begin
+  if packet.ssh then
+    invariant_failed := true;
+  end;
+end;
+{{/client_procs}}
+
+{{#controller_client_startstate}}
+  invariant_failed := false;
+  
+  for s: Switch_ids do
+    for ssh:boolean do
+      for port:1..2 do
+        queue_packet(ssh, port, s);
+      endfor;
+    endfor;
+  endfor;
+{{/controller_client_startstate}}
+
+{{#invariant}}
+  !invariant_failed
+{{/invariant}}

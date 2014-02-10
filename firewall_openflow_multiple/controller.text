@@ -1,0 +1,189 @@
+{{#packet_decls}}
+type ip_port_t: 1..2;
+type status_t : enum { Init, Reply, Finish };
+{{/packet_decls}}
+
+{{#controller_client_decls}}
+type configure_rule_t: Record 
+       src : Client_ids;
+       src_port : ip_port_t;
+       dest : Client_ids;
+       dest_port : ip_port_t;
+end;
+
+var configure_table: Multiset [16] of configure_rule_t;
+
+var r1 : configure_rule_t;
+var r2 : configure_rule_t;
+var r3 : configure_rule_t;
+var r4 : configure_rule_t;
+
+var flows: Array [Client_ids] of Array [ip_port_t] of Array [Client_ids] of Array [ip_port_t] of boolean;
+var invariant_failed: boolean;
+{{/controller_client_decls}}
+
+{{#check_dropped_packet}}
+procedure check_dropped_packet(packet: data_packet_t; which_switch: Switch_ids);
+begin
+  if (flows[packet.src][packet.src_port][packet.dest][packet.dest_port]) then
+    invariant_failed := true;
+  endif;
+end;
+{{/check_dropped_packet}}
+
+{{#controller_procs}}
+function should_allow(packet: data_packet_t): boolean;
+begin
+  return MultisetCount(i:configure_table, 
+		configure_table[i].src = packet.src & 
+	        configure_table[i].src_port = packet.src_port & 
+	        configure_table[i].dest = packet.dest &
+	        configure_table[i].dest_port = packet.dest_port
+	        ) >= 1;
+end;
+
+--------------------------------------------------------------------------
+
+-- controller
+
+--------------------------------------------------------------------------
+
+procedure controller(packet: data_packet_t; which_switch: Switch_ids);
+  var rule1: rule_t;
+  var rule2: rule_t;
+  var drop_rule: rule_t;
+begin
+  if(should_allow(packet)) then
+    flows[packet.src][packet.src_port][packet.dest][packet.dest_port] := true;
+    flows[packet.dest][packet.dest_port][packet.src][packet.src_port] := true;
+    
+    init_rule(rule1);
+    rule1.src := packet.src;
+    rule1.src_port := packet.src_port;
+    rule1.dest := packet.dest;
+    rule1.dest_port := packet.dest_port;
+    rule1.priority := 5;
+    rule1.forward_port := get_client_port(packet.dest);
+    -- rule1.timeout := true;
+
+    init_rule(rule2);
+    rule2.src := packet.dest;
+    rule2.src_port := packet.dest_port;
+    rule2.dest := packet.src;
+    rule2.dest_port := packet.src_port;
+    rule2.priority := 5;
+    rule2.forward_port := get_client_port(packet.src);
+    -- rule2.timeout := true;
+    
+    for ss:Switch_ids do
+      send_rule(rule1, ss);
+      send_rule(rule2, ss);
+      barrier(ss);
+    endfor;
+
+    -- barrier(which_switch); -- in a buggy scenario, only this barrier will be applied and not the one in the for loop
+    forward(packet, get_client_port(packet.dest), which_switch);
+  else
+    init_rule(drop_rule);
+    drop_rule.src := packet.src;
+    drop_rule.src_port := packet.src_port;
+    drop_rule.dest := packet.dest;
+    drop_rule.dest_port := packet.dest_port;
+    drop_rule.priority := 1;
+    drop_rule.forward_port := -1;
+    
+    for ss:Switch_ids do
+      send_rule(drop_rule, ss);
+      -- barrier(ss); -- optional. if the controller never wants to see a packet for which it installed rules again
+    endfor;
+
+    drop(packet, which_switch);
+  end;
+end;
+{{/controller_procs}}
+
+{{#controller_client_startstate}}
+  r1.src := client1_id; r1.dest := client4_id;
+  r1.src_port := 1; r1.dest_port := 2;
+
+  r2.src := client2_id; r2.dest := client4_id;
+  r2.src_port := 1; r2.dest_port := 2;
+
+  r3.src := client2_id; r3.dest := client5_id;
+  r3.src_port := 1; r3.dest_port := 2;
+
+  r4.src := client3_id; r4.dest := client5_id;
+  r4.src_port := 1; r4.dest_port := 2;
+
+  MultisetAdd(r1, configure_table);
+  MultisetAdd(r2, configure_table);
+  MultisetAdd(r3, configure_table);
+  MultisetAdd(r4, configure_table);
+
+  for src_client: Client_ids do
+    for src_port: ip_port_t do
+      for dest_client: Client_ids do
+        for dest_port: ip_port_t do
+          flows[src_client][src_port][dest_client][dest_port] := false;
+	      endfor;
+      endfor;
+    endfor;
+  endfor;
+  
+  invariant_failed := false;
+{{/controller_client_startstate}}
+
+{{#controller_client_decls}}
+var client_packets: Array [Client_ids] of Array [ip_port_t] of Array [Client_ids] of Array [ip_port_t] of data_packet_t;
+{{/controller_client_decls}}
+
+{{#client_procs}}
+--------------------------------------------------------------------------
+
+-- client queue
+
+--------------------------------------------------------------------------
+function get_client_port(client: Client_ids): port_t;
+begin
+  switch client
+    case client1_id: return 1;
+    case client2_id: return 2;
+    case client3_id: return 3;
+    case client4_id: return 4;
+    case client5_id: return 5;
+  endswitch;
+end;
+
+procedure prepare_packet(var packet:data_packet_t; from_src: Client_ids; from_port:ip_port_t; to_dest: Client_ids; to_port: ip_port_t);
+begin
+  packet.src := from_src;
+  packet.dest := to_dest;
+  packet.port := get_client_port(from_src);
+  packet.src_port := from_port;
+  packet.dest_port := to_port;
+end;
+
+procedure client_packet_received(packet: data_packet_t; which_client: Client_ids);
+begin
+end;
+{{/client_procs}}
+
+{{#controller_client_startstate}}
+  for s: Switch_ids do
+    for src_client: Client_ids do
+      for src_port: ip_port_t do
+        for dest_client: Client_ids do
+          for dest_port: ip_port_t do
+            if can_communicate(src_client, dest_client) then
+              prepare_packet(client_packets[src_client][src_port][dest_client][dest_port], src_client, src_port, dest_client, dest_port);
+              enqueue_data(client_packets[src_client][src_port][dest_client][dest_port], switches[s].data_queue);
+            endif;
+          endfor;
+        endfor;
+      endfor;
+    endfor;
+  endfor;{{/controller_client_startstate}}
+
+{{#invariant}}
+!invariant_failed
+{{/invariant}}

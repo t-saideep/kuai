@@ -1,0 +1,91 @@
+{{#controller_client_decls}}
+type mac_table_t: Array [Client_ids] of port_t;
+type control_state_t: Array [Switch_ids] of mac_table_t;
+
+var control_state: control_state_t;
+{{/controller_client_decls}}
+
+{{#controller_procs}}
+--------------------------------------------------------------------------
+
+-- controller
+
+--------------------------------------------------------------------------
+
+procedure controller(packet: data_packet_t; which_switch: Switch_ids);
+  var mac_table: mac_table_t;
+  var outport: port_t;
+  var this_rule: rule_t;
+begin
+  init_rule(this_rule);
+  mac_table := control_state[which_switch];
+  control_state[which_switch][packet.src] := packet.port; -- using mac_table here does not work in Murphi for some reason
+  outport := mac_table[packet.dest];
+
+  if outport != -1 then
+    if outport != packet.port then
+      -- this is so the controller discovers more clients who potentially initiate communication with dest
+      this_rule.src := packet.src;
+      this_rule.port := packet.port;
+  	  this_rule.dest := packet.dest;
+  	  this_rule.forward_port := outport;
+  	  send_rule(this_rule, which_switch);
+      
+      forward(packet, outport, which_switch);
+    endif;
+  else
+    flood(packet, which_switch);
+  endif;
+end;
+{{/controller_procs}}
+
+{{#client_procs}}
+procedure client_packet_received(packet: data_packet_t; which_client: Client_ids);
+begin
+end;
+
+--------------------------------------------------------------------------
+
+-- clients queue
+
+--------------------------------------------------------------------------
+procedure client_send_packet(src: Client_ids; dest: Client_ids);
+var packet: data_packet_t;
+begin
+  packet.src := src;
+  for s: Switch_ids do
+    packet.reached[s] := false;
+  end;
+  packet.dest := dest;
+  packet.port := switch_port_of_client(src);
+  enqueue_data(packet, switches[switch_of_client(src)].data_queue);
+end;
+
+procedure start_all_clients();
+  var packet: data_packet_t;
+begin
+  for src: Client_ids do
+    for dest: Client_ids do
+      if can_communicate(src, dest) then
+        client_send_packet(src, dest);
+      endif;
+    end;
+  end;
+end;
+{{/client_procs}}
+
+{{#controller_client_startstate}}
+  for s: Switch_ids do
+    for c: Client_ids do
+      control_state[s][c] := -1;
+    end;
+  end;
+  
+  start_all_clients();
+{{/controller_client_startstate}}
+
+{{#invariant}}
+  forall s: Switch_ids do
+    MultisetCount(i:switches[s].data_queue, !isundefined(switches[s].data_queue[i].reached[s]) & switches[s].data_queue[i].reached[s]) = 0
+  end
+{{/invariant}}

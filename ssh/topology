@@ -1,0 +1,30 @@
+{
+"switches": [
+	    {"id": "switch",
+	     "type": "default",
+	     "ports": 2
+	    }
+],
+
+"packet": {"ssh": "boolean"},
+
+"rule_match_fields": {"ssh": "boolean", "port": "port_t"},
+
+"clients": [
+  {"id": "client1",
+   "type": "default",
+   "contacts": ["client2"]
+  },
+  
+  {"id": "client2",
+   "type": "default",
+   "contacts": ["client1"]
+  }
+],
+
+"connections": [
+	       [{"client1": 1}, {"switch": 1}],
+	       [{"client2": 1}, {"switch": 2}]
+]
+
+}

@@ -1,0 +1,463 @@
+const Bound: {{bound}};
+
+type range_t: 0..Bound;
+type Client_ids: enum { {{client_ids_string}} };
+type Switch_ids: enum { {{switch_ids_string}} };
+type priority_t: 0..10;
+type port_t: -1..{{num_ports}};
+
+{{packet_decls_text}}
+
+type data_packet_t: record
+{{#data_packet_fields}}
+  {{field_name}}: {{field_type}};
+{{/data_packet_fields}}
+{{#switch_counter}}
+  reached: Array [Switch_ids] of boolean;
+{{/switch_counter}}
+end;
+
+type rule_t: record
+{{#rule_fields}}
+  {{field_name}}: {{field_type}};
+{{/rule_fields}}
+  forward_port: port_t;
+  priority: priority_t;
+  timeout: boolean;
+  install: boolean;
+end;
+
+type data_queue_t: Multiset [{{data_queue_size}}] of data_packet_t;
+type switch_rules_t: Multiset [{{switch_rules_count}}] of rule_t;
+
+type switch_t: record
+  data_queue: data_queue_t;
+  control_queue: switch_rules_t;
+  rules: switch_rules_t;
+end;
+
+var switches: Array [Switch_ids] of switch_t;
+
+{{controller_client_decls_text}}
+
+{{#client_single_switch}}
+function switch_of_client(client: Client_ids): Switch_ids;
+begin
+  switch client
+  {{#clients}}
+  case {{id}}_id:
+    return {{connecting_switch}}_id;
+  {{/clients}}
+  end;
+end;
+
+function switch_port_of_client(client: Client_ids): port_t;
+begin
+  switch client
+  {{#clients}}
+  case {{id}}_id:
+    return {{connecting_switch_port}};
+  {{/clients}}
+  end;
+end;
+{{/client_single_switch}}
+
+procedure enqueue_data(packet: data_packet_t; queue: data_queue_t);
+  if MultisetCount(i:queue, 
+                   {{#data_packet_fields}} (isundefined(queue[i].{{field_name}}) |  queue[i].{{field_name}} = packet.{{field_name}}) & {{/data_packet_fields}} 
+                   {{#switch_counter}} {{#switches}} queue[i].reached[{{id}}_id] = packet.reached[{{id}}_id] & {{/switches}} {{/switch_counter}}
+                   true) < Bound then
+    MultisetAdd(packet, queue);
+  endif;
+end;
+
+function is_omega_data(packet: data_packet_t; queue: data_queue_t): boolean;
+begin
+  return MultisetCount(i:queue, 
+                   {{#data_packet_fields}} (isundefined(queue[i].{{field_name}}) |  queue[i].{{field_name}} = packet.{{field_name}}) & {{/data_packet_fields}} true) >= Bound;
+end;
+
+function same_rules(r1: rule_t; r2: rule_t): boolean;
+begin
+  return
+    {{#rule_fields}} 
+    (isundefined(r1.{{field_name}}) -> isundefined(r2.{{field_name}})) &
+    (isundefined(r2.{{field_name}}) -> isundefined(r1.{{field_name}})) & 
+    {{/rule_fields}}
+    {{#rule_fields}} (!isundefined(r1.{{field_name}}) -> (r1.{{field_name}} = r2.{{field_name}})) & {{/rule_fields}}
+    r1.forward_port = r2.forward_port &
+    r1.priority = r2.priority & 
+    r1.timeout = r2.timeout &
+    r1.install = r2.install
+end;
+
+function overlapping_rules(r1: rule_t; r2: rule_t): boolean;
+begin
+  if same_rules(r1, r2) then
+    return true;
+  endif;
+  
+  -- rules overlap if a field is undefined for one and defined for another
+  -- coz undefined fields are wildcards
+  return !(
+    {{#rule_fields}} 
+    (isundefined(r1.{{field_name}}) -> isundefined(r2.{{field_name}})) &
+    (isundefined(r2.{{field_name}}) -> isundefined(r1.{{field_name}})) & 
+    {{/rule_fields}}
+    true
+    )
+end;
+
+procedure send_rule(which_rule: rule_t; which_switch: Switch_ids);
+var control_queue: switch_rules_t;
+var rules: switch_rules_t;
+begin
+  control_queue := switches[which_switch].control_queue;
+  rules := switches[which_switch].rules;
+  
+  if MultisetCount(i:control_queue, same_rules(control_queue[i], which_rule)) = 0 &
+    MultisetCount(r:rules, same_rules(rules[r], which_rule)) = 0
+  then
+    MultisetAdd(which_rule, switches[which_switch].control_queue);
+  endif;
+end;
+
+procedure install_rule(packet: rule_t; rules: switch_rules_t);
+  var this_rule: rule_t;
+begin
+  {{#rule_fields}}
+  if !isundefined(packet.{{field_name}}) then
+    this_rule.{{field_name}} := packet.{{field_name}};
+  endif;
+  {{/rule_fields}}
+
+  this_rule.forward_port := packet.forward_port;
+  this_rule.priority := packet.priority;
+  this_rule.timeout := packet.timeout;
+  this_rule.install := true;
+
+  if MultisetCount(i:rules, same_rules(rules[i], this_rule)) = 0 then
+    MultisetAdd(this_rule, rules);
+  endif;
+end;
+
+procedure uninstall_rule(packet: rule_t; rules: switch_rules_t);
+  var this_rule: rule_t;
+begin
+  {{#rule_fields}}
+  if !isundefined(packet.{{field_name}}) then
+    this_rule.{{field_name}} := packet.{{field_name}};
+  endif;
+  {{/rule_fields}}
+
+  this_rule.forward_port := packet.forward_port;
+  this_rule.priority := packet.priority;
+  this_rule.timeout := packet.timeout;
+  this_rule.install := true; -- find all such installed rules
+
+  MultisetRemovePred(i:rules, same_rules(rules[i], this_rule));
+end;
+
+-- gives default values to fields that should be defined
+procedure init_rule(var rule1: rule_t);
+begin
+  rule1.forward_port := -1;
+  rule1.priority := 1;
+  rule1.timeout := false;
+  rule1.install := true;
+end;
+
+function can_communicate(left_client: Client_ids; right_client: Client_ids): boolean;
+begin
+  switch left_client
+  {{#clients}}
+  case {{id}}_id:
+    switch right_client
+    {{#contacts}}
+    case {{dest}}_id: return true;
+    {{/contacts}}
+    else return false;
+    endswitch;
+  {{/clients}}
+  endswitch;
+end;
+
+{{client_text}}
+
+{{check_forwarded_text}}
+
+procedure forward(packet: data_packet_t; port: 0..{{num_ports}}; which_switch: Switch_ids);
+  var new_p: data_packet_t;
+begin
+  {{#data_packet_fields}} 
+  new_p.{{field_name}} := packet.{{field_name}};
+  {{/data_packet_fields}}
+  
+  {{#forward_packet_tracking}}
+  check_forwarded_packet(new_p);
+  {{/forward_packet_tracking}}
+  
+  {{#switch_counter}}
+  for ss: Switch_ids do
+    new_p.reached[ss] := packet.reached[ss];
+  endfor;
+  {{/switch_counter}}
+
+  switch which_switch
+  {{#switches}}
+  case {{id}}_id:
+    switch(port)
+    {{#connections}}
+    case {{src_port}}:
+      new_p.port := {{dest_port}};
+      {{dest_queue_proc}}(new_p, {{dest_queue_arg}});
+    {{/connections}}
+    end;
+  {{/switches}}
+  end;
+end;
+
+{{check_dropped_text}}
+
+procedure drop(packet: data_packet_t; which_switch: Switch_ids);
+begin
+  {{#drop_packet_tracking}}
+  check_dropped_packet(packet, which_switch);
+  {{/drop_packet_tracking}}
+end;
+
+procedure flood(packet: data_packet_t; which_switch: Switch_ids);
+begin
+  for i:port_t do
+    if i != packet.port & i != -1 then
+      forward(packet, i, which_switch);
+    endif;
+  end;
+end;
+
+procedure act_on_control_queue_rule(which_rule: rule_t; which_switch: Switch_ids);
+begin
+  if which_rule.install then
+    install_rule(which_rule, switches[which_switch].rules);
+  else
+    uninstall_rule(which_rule, switches[which_switch].rules);
+  endif;
+end;
+
+procedure barrier(which_switch: Switch_ids);
+  var rule1 : rule_t;
+begin
+  MultisetMap cc in switches[which_switch].control_queue do
+    rule1 := switches[which_switch].control_queue[cc];
+    act_on_control_queue_rule(rule1, which_switch)
+  end;
+
+  MultisetRemovePred(i: switches[which_switch].control_queue, true);
+end;
+
+function matched(packet: data_packet_t; this_rule: rule_t): boolean;
+begin
+  return this_rule.install & {{#rule_fields}} ((isundefined(this_rule.{{field_name}})) | (this_rule.{{field_name}} = packet.{{field_name}})) & {{/rule_fields}} true;
+end;
+
+function highest_priority_match(packet: data_packet_t; queue: switch_rules_t): priority_t;
+var max:priority_t;
+var current_priority:priority_t;
+begin
+  max := 0;
+  MultisetMap r in queue do
+    if matched(packet, queue[r]) then
+      current_priority := queue[r].priority;
+      assert(max != current_priority); -- cannot have two matching rules with same priority
+      if(max < current_priority) then
+        max := current_priority;
+      endif;
+    endif;
+  end;
+  
+  return max;
+end;
+
+procedure rule_action(packet: data_packet_t; this_rule: rule_t; s: Switch_ids);
+  var new_p: data_packet_t;
+  var this_switch: switch_t;
+begin
+  this_switch := switches[s];
+  {{#data_packet_fields}}
+  new_p.{{field_name}} := packet.{{field_name}};
+  {{/data_packet_fields}}
+
+  {{#switch_counter}}
+  for ss: Switch_ids do
+    new_p.reached[ss] := packet.reached[ss];
+  endfor;
+
+  new_p.reached[s] := true;
+  {{/switch_counter}}
+
+  if this_rule.forward_port != -1 then
+    forward(new_p, this_rule.forward_port, s);
+  {{#drop_packet_tracking}}
+  else
+    check_dropped_packet(new_p, s);
+  {{/drop_packet_tracking}}
+  endif;
+end;
+
+{{controller_text}}
+
+--------------------------------------------------------------
+-- Switches
+--------------------------------------------------------------
+
+-- rules
+
+ruleset s:Switch_ids do
+  alias this_switch: switches[s] do
+    choose c:switches[s].control_queue do
+      alias packet:this_switch.control_queue[c] do
+        rule "Disable a rule"
+          !packet.install
+        ==>
+          act_on_control_queue_rule(packet, s);
+          MultisetRemove(c, this_switch.control_queue);
+        end;
+      end;
+    end;
+  end;
+end;
+
+ruleset s:Switch_ids do
+  alias this_switch: switches[s] do
+    choose r:switches[s].rules do
+      --timer
+      rule "Timer remove rule"
+        !isundefined(this_switch.rules[r].timeout) & this_switch.rules[r].timeout
+      ==>
+        MultisetRemove(r, this_switch.rules);
+      end;
+    end;
+  end;
+end;
+
+-- data packets
+
+ruleset only_installed_rules: boolean do
+  ruleset s:Switch_ids do
+    alias this_switch: switches[s] do
+      rule "match all packets"
+        only_installed_rules & MultisetCount(i: this_switch.data_queue, MultisetCount(j: this_switch.rules, matched(this_switch.data_queue[i], this_switch.rules[j])) > 0) > 0
+      ==>
+        var current_priority: priority_t;
+        var packet: data_packet_t;
+        var this_rule: rule_t;
+      begin
+        MultisetMap p in this_switch.data_queue do
+          packet := this_switch.data_queue[p];
+          current_priority := highest_priority_match(packet, this_switch.rules);
+          if current_priority > 0 then
+            MultisetMap r in this_switch.rules do
+              this_rule := this_switch.rules[r];
+              if(matched(packet, this_rule) & this_rule.priority = current_priority) then
+                rule_action(packet, this_rule, s); -- this also sets switch counter
+                if !is_omega_data(packet, this_switch.data_queue) then
+                  MultisetRemove(p, this_switch.data_queue);
+                endif;
+              end;
+            end;
+          endif;
+        end;
+      endrule;
+
+      choose p:switches[s].data_queue do
+        alias packet:this_switch.data_queue[p] do
+          rule "no match for packet, referring to controller"
+            only_installed_rules & MultisetCount(i:this_switch.rules, matched(packet, this_switch.rules[i])) = 0
+          ==>
+            var new_p: data_packet_t;
+          begin
+            {{#data_packet_fields}} 
+            new_p.{{field_name}} := packet.{{field_name}};
+            {{/data_packet_fields}}
+            {{#switch_counter}}
+            for ss: Switch_ids do
+              new_p.reached[ss] := packet.reached[ss];
+            endfor;
+
+            new_p.reached[s] := true;
+            {{/switch_counter}}
+
+            controller(new_p, s);
+            if !is_omega_data(packet, this_switch.data_queue) then
+              MultisetRemove(p, this_switch.data_queue);
+            endif;
+          end;
+        end;
+      end;
+
+      choose p:switches[s].data_queue do
+        alias packet:this_switch.data_queue[p] do
+          rule "Two rules with same priority match"
+            !only_installed_rules & highest_priority_match(packet, this_switch.control_queue) = highest_priority_match(packet, this_switch.rules)
+            & highest_priority_match(packet, this_switch.rules) != 0
+          ==>
+            assert(false);
+          end;
+          
+          rule "Installing control queue rule and match"
+            !only_installed_rules & highest_priority_match(packet, this_switch.control_queue) > highest_priority_match(packet, this_switch.rules)
+          ==>
+            var current_priority: priority_t;
+            var this_rule: rule_t;
+            var rule_fired: rule_t;
+          begin
+            current_priority := highest_priority_match(packet, this_switch.control_queue);
+            assert(current_priority > 0);
+            
+            -- find out which rule should fire and fire it
+            MultisetMap r in this_switch.control_queue do
+              this_rule := this_switch.control_queue[r];
+              if(matched(packet, this_rule) & this_rule.priority = current_priority) then
+                act_on_control_queue_rule(this_rule, s); -- install this rule
+                rule_fired := this_rule;
+                rule_action(packet, this_rule, s); -- this also sets switch counter
+                if !is_omega_data(packet, this_switch.data_queue) then
+                  MultisetRemove(p, this_switch.data_queue);
+                endif;
+              end;
+            end;
+            
+            -- add all non-overlapping rules to the switch rules
+            MultisetMap rr in this_switch.control_queue do
+              this_rule := this_switch.control_queue[rr];
+              if !overlapping_rules(this_rule, rule_fired) then
+                act_on_control_queue_rule(this_rule, s);
+              endif;
+            end;
+            
+            -- remove this rule and all non-overlapping rules from control queue
+            MultisetRemovePred(i:this_switch.control_queue, same_rules(this_switch.control_queue[i], rule_fired));
+            MultisetRemovePred(j:this_switch.control_queue, !overlapping_rules(this_switch.control_queue[j], rule_fired));
+          end;
+        end;
+      end;
+
+    end;
+  end;
+end;
+
+{{controller_client_rules_text}}
+
+startstate
+  for s: Switch_ids do
+    Undefine switches[s].data_queue;
+    Undefine switches[s].control_queue;
+    Undefine switches[s].rules;
+  end;
+  
+  {{controller_client_startstate_text}}
+end;
+
+invariant
+	{{invariant_text}}
+	

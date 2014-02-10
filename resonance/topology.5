@@ -1,0 +1,82 @@
+{
+"switches": [
+	    {"id": "switch1",
+	     "type": "default",
+	     "ports": 3
+	    },
+
+	    {"id": "switch2",
+	     "type": "default",
+	     "ports": 4
+	    },
+
+	    {"id": "switch3",
+	     "type": "default",
+	     "ports": 6
+	    },
+
+	    {"id": "switch4",
+	     "type": "default",
+	     "ports": 3
+	    }
+
+],
+
+"packet": {"src": "Client_ids", "src_port" : "ip_port_t", "dest": "Client_ids",  "dest_port" : "ip_port_t", "status" : "status_t"},
+
+"rule_match_fields": {"src": "Client_ids", "src_port" : "ip_port_t", "dest": "Client_ids",  "dest_port" : "ip_port_t"},
+
+"clients": [
+  {"id": "client1",
+   "type": "default",
+   "contacts": ["client2"]
+  },
+  
+  {"id": "client2",
+   "type": "default",
+   "contacts": ["client1"]
+  },
+
+  {"id": "client3",
+   "type": "default",
+   "contacts": ["client1"]
+  },
+
+  {"id": "client4",
+   "type": "default",
+   "contacts": ["client1"]
+  },
+
+  {"id": "client5",
+   "type": "default",
+   "contacts": ["client1"]
+  },
+
+  {"id": "portal",
+   "type": "portal"
+  },
+
+  {"id": "scanner",
+   "type": "scanner"
+  }
+],
+
+"forward_packet_tracking": true,
+
+"connections": [
+	       [{"client1": 1}, {"switch1": 1}],
+	       [{"switch1": 2}, {"switch2": 1}],
+	       [{"switch1": 3}, {"switch4": 1}],
+	       
+	       [{"switch2": 2}, {"portal": 1}],
+	       [{"switch2": 3}, {"scanner": 1}],
+	       [{"switch2": 4}, {"switch3": 2}],
+	       
+	       [{"switch3": 1}, {"switch4": 2}],
+	       [{"switch3": 3}, {"client2": 1}],
+         
+         [{"switch3": 4}, {"client3": 1}],
+         [{"switch3": 5}, {"client4": 1}],
+         [{"switch3": 6}, {"client5": 1}]
+]
+}

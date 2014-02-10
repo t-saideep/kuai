@@ -1,0 +1,115 @@
+{
+"switches": [
+	    {"id": "switch2",
+	     "type": "default",
+	     "ports": 10
+	    },
+      
+	    {"id": "switch3",
+	     "type": "default",
+	     "ports": 10
+	    },
+
+	    {"id": "switch4",
+	     "type": "default",
+	     "ports": 2
+	    },
+      
+	    {"id": "switch5",
+	     "type": "default",
+	     "ports": 4
+	    },
+      
+	    {"id": "switch6",
+	     "type": "default",
+	     "ports": 3
+	    }
+],
+
+"packet": {"src": "Client_ids", "dest": "Client_ids", "state" : "state_t", "protocol" : "protocol_t"},
+
+"rule_match_fields": {"port": "port_t", "state" : "state_t", "protocol": "protocol_t"},
+
+"clients": [
+  {"id": "client1",
+   "type": "default"
+  },
+  
+  {"id": "client2",
+   "type": "default"
+  },
+
+  {"id": "client3",
+   "type": "default"
+  },
+
+  {"id": "client4",
+   "type": "default"
+  },
+
+  {"id": "client5",
+   "type": "default"
+  },
+  
+  {"id": "client6",
+   "type": "default"
+  },
+
+  {"id": "client7",
+   "type": "default"
+  },
+
+  {"id": "client8",
+   "type": "default"
+  },
+
+  {"id": "firewall1",
+   "type": "firewall"
+  },
+
+  {"id": "firewall2",
+   "type": "firewall"
+  },
+
+  {"id": "ids",
+   "type": "ids"
+  },
+
+  {"id": "proxy",
+   "type": "proxy"
+  }  
+],
+
+"connections": [
+	       [{"client1": 1}, {"switch2": 1}],
+	       [{"client1": 1}, {"switch3": 1}],
+	       [{"firewall1": 1}, {"switch2": 2}],
+         [{"proxy": 1}, {"switch2": 3}],
+	       [{"switch2": 4}, {"switch4": 1}],
+	       [{"switch4": 2}, {"switch5": 1}],
+	       [{"switch3": 2}, {"switch5": 2}],
+	       [{"switch3": 3}, {"firewall2": 1}],
+	       [{"switch5": 3}, {"switch6": 1}],
+	       [{"switch5": 4}, {"ids": 1}],
+	       [{"switch6": 2}, {"client2": 1}],
+         
+	       [{"client3": 1}, {"switch2": 5}],
+	       [{"client3": 1}, {"switch3": 5}],
+
+	       [{"client4": 1}, {"switch2": 6}],
+	       [{"client4": 1}, {"switch3": 6}],
+         
+	       [{"client5": 1}, {"switch2": 7}],
+	       [{"client5": 1}, {"switch3": 7}],
+
+	       [{"client6": 1}, {"switch2": 8}],
+	       [{"client6": 1}, {"switch3": 8}],
+         
+         
+	       [{"client7": 1}, {"switch2": 9}],
+	       [{"client7": 1}, {"switch3": 9}],
+
+	       [{"client8": 1}, {"switch2": 10}],
+	       [{"client8": 1}, {"switch3": 10}]
+]
+}

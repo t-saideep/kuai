@@ -1,0 +1,76 @@
+{
+"switches": [
+	    {"id": "switch1",
+	     "type": "default",
+	     "ports": 5
+	    },
+
+	    {"id": "switch2",
+	     "type": "default",
+	     "ports": 5
+	    },
+      
+	    {"id": "switch3",
+	     "type": "default",
+	     "ports": 5
+	    }
+],
+
+"packet": {"src": "Client_ids", "src_port" : "ip_port_t", "dest": "Client_ids",  "dest_port" : "ip_port_t"},
+
+"rule_match_fields": {"src": "Client_ids", "src_port" : "ip_port_t", "dest": "Client_ids",  "dest_port" : "ip_port_t"},
+
+"clients": [
+  {"id": "client1",
+   "type": "default",
+   "contacts": ["client4"]
+  },
+  
+  {"id": "client2",
+   "type": "default",
+   "contacts": []
+  },
+
+  {"id": "client3",
+   "type": "default",
+   "contacts": []
+  },
+
+  {"id": "client4",
+   "type": "default",
+   "contacts": ["client1"]
+  },
+
+  {"id": "client5",
+   "type": "default",
+   "contacts": []
+  }
+],
+
+"drop_packet_tracking": true,
+
+"connections": [
+	       [{"client1": 1}, {"switch1": 1}],
+	       [{"client2": 1}, {"switch1": 2}],
+	       [{"client3": 1}, {"switch1": 3}],
+
+	       [{"switch1": 4}, {"client4": 1}],
+	       [{"switch1": 5}, {"client5": 1}],
+
+
+	       [{"client1": 1}, {"switch2": 1}],
+	       [{"client2": 1}, {"switch2": 2}],
+	       [{"client3": 1}, {"switch2": 3}],
+
+	       [{"switch2": 4}, {"client4": 1}],
+	       [{"switch2": 5}, {"client5": 1}],
+
+
+	       [{"client1": 1}, {"switch3": 1}],
+	       [{"client2": 1}, {"switch3": 2}],
+	       [{"client3": 1}, {"switch3": 3}],
+
+	       [{"switch3": 4}, {"client4": 1}],
+	       [{"switch3": 5}, {"client5": 1}]
+       ]
+}

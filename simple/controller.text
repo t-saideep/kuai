@@ -1,0 +1,345 @@
+{{#packet_decls}}
+type state_t: enum { Nil, FW, Proxy, IDS };
+type protocol_t : enum {http , rest};
+{{/packet_decls}}
+
+{{#controller_client_decls}}
+var invariant_failed : boolean;
+{{/controller_client_decls}}
+
+{{#controller_procs}}
+--------------------------------------------------------------------------
+
+-- controller
+
+--------------------------------------------------------------------------
+
+
+procedure controller(packet: data_packet_t; which_switch: Switch_ids);
+  var rule3 : rule_t;
+  var rule4 : rule_t;
+  var rule5 : rule_t;
+  var rule6 : rule_t;
+  var rule7 : rule_t;
+  var rule8 : rule_t;
+  var rule9 : rule_t;
+  var rule10 : rule_t;
+  var rule11 : rule_t;
+  var rule12 : rule_t;
+  var rule13 : rule_t;
+  var rule14 : rule_t;
+  var rule15 : rule_t;
+  
+begin
+  init_rule(rule3);
+  init_rule(rule4);
+  init_rule(rule5);
+  init_rule(rule6);
+  init_rule(rule7);
+  init_rule(rule8);
+  init_rule(rule9);
+  init_rule(rule10);
+  init_rule(rule11);
+  init_rule(rule12);
+  init_rule(rule13);
+  init_rule(rule14);
+  init_rule(rule15);
+  
+  if which_switch = switch2_id | which_switch = switch3_id then
+    switch packet.protocol
+      case http:
+        rule3.port := 1;
+        rule3.state := Nil;
+        rule3.protocol := http;
+        rule3.priority := 5;
+        rule3.forward_port := 2;
+        rule3.install := true;
+    
+        rule4.port := 2;
+        rule4.protocol := http;
+        rule4.priority := 5;
+        rule4.forward_port := 4;
+        rule4.install := true;
+    
+        rule5.port := 4;
+        rule5.state := IDS;
+        rule5.protocol := http;
+        rule5.priority := 5;
+        rule5.forward_port := 3;
+        rule5.install := true;
+    
+        rule6.port := 3;
+        rule6.protocol := http;
+        rule6.priority := 5;
+        rule6.forward_port := 4;
+        rule6.install := true;
+
+        send_rule(rule3, switch2_id);
+        send_rule(rule4, switch2_id);
+        send_rule(rule5, switch2_id);
+        send_rule(rule6, switch2_id);
+        barrier(switch2_id);
+    
+        rule7.port := 1;
+        rule7.state := Nil;
+        rule7.protocol := http;
+        rule7.priority := 5;
+        rule7.forward_port := 3; 
+        rule7.install := true;
+    
+        rule8.port := 3;
+        rule8.protocol := http;
+        rule8.priority := 5;
+        rule8.forward_port := 2;
+        rule8.install := true;    
+    
+        send_rule(rule7, switch3_id);
+        send_rule(rule8, switch3_id);    
+        barrier(switch3_id);
+
+        rule9.port := 1;
+        rule9.protocol := http;
+        rule9.priority := 5;
+        rule9.forward_port := 2; 
+        rule9.install := true;
+    
+        rule10.port := 2;
+        rule10.protocol := http;
+        rule10.priority := 5;
+        rule10.forward_port := 1;
+        rule10.install := true;    
+    
+        send_rule(rule9, switch4_id);
+        send_rule(rule10, switch4_id);    
+        barrier(switch4_id);
+
+        rule11.port := 1;
+        rule11.state := FW;
+        rule11.protocol := http;
+        rule11.priority := 5;
+        rule11.forward_port := 4; 
+        rule11.install := true;
+        
+        rule12.port := 2;
+        rule12.state := FW;
+        rule12.protocol := http;
+        rule12.priority := 5;
+        rule12.forward_port := 4; 
+        rule12.install := true;
+ 
+        rule13.port := 4;
+        rule13.priority := 5;
+        rule13.protocol := http;
+        rule13.forward_port := 1;
+        rule13.install := true;    
+ 
+        rule14.port := 1;
+        rule14.state := Proxy;
+        rule14.protocol := http;
+        rule14.priority := 5;
+        rule14.forward_port := 3;
+        rule14.install := true;
+    
+        send_rule(rule11, switch5_id);
+        send_rule(rule12, switch5_id);    
+        send_rule(rule13, switch5_id);    
+        send_rule(rule14, switch5_id);    
+        barrier(switch5_id);
+        
+        rule15.port := 1;
+        rule15.protocol := http;
+        rule15.priority := 5;
+        rule15.forward_port := 2; 
+        rule15.install := true;
+
+        send_rule(rule15, switch6_id);
+        barrier(switch6_id);
+      case rest:
+        rule3.port := 1;
+        rule3.state := Nil;
+        rule3.protocol := rest;
+        rule3.priority := 5;
+        rule3.forward_port := 2;
+        rule3.install := true;
+    
+        rule4.port := 2;
+        rule4.protocol := rest;
+        rule4.priority := 5;
+        rule4.forward_port := 4;
+        rule4.install := true;
+
+        send_rule(rule3, switch2_id);
+        send_rule(rule4, switch2_id);
+        barrier(switch2_id);
+    
+        rule5.port := 1;
+        rule5.state := Nil;
+        rule5.protocol := rest;
+        rule5.priority := 5;
+        rule5.forward_port := 3; 
+        rule5.install := true;
+    
+        rule6.port := 3;
+        rule6.protocol := rest;
+        rule6.priority := 5;
+        rule6.forward_port := 2;
+        rule6.install := true;    
+    
+        send_rule(rule5, switch3_id);
+        send_rule(rule6, switch3_id);    
+        barrier(switch3_id);
+
+        rule7.port := 1;
+        rule7.protocol := rest;
+        rule7.priority := 5;
+        rule7.forward_port := 2; 
+        rule7.install := true;
+    
+        rule8.port := 2;
+        rule8.protocol := rest;
+        rule8.priority := 5;
+        rule8.forward_port := 1;
+        rule8.install := true;    
+    
+        send_rule(rule7, switch4_id);
+        send_rule(rule8, switch4_id);    
+        barrier(switch4_id);
+
+
+        rule9.port := 1;
+        rule9.state := FW;
+        rule9.protocol := rest;
+        rule9.priority := 5;
+        rule9.forward_port := 4; 
+        rule9.install := true;
+        
+        rule10.port := 2;
+        rule10.state := FW;
+        rule10.protocol := rest;
+        rule10.priority := 5;
+        rule10.forward_port := 4; 
+        rule10.install := true;
+ 
+        rule11.port := 4;
+        rule11.state := IDS;
+        rule11.priority := 5;
+        rule11.protocol := rest;
+        rule11.forward_port := 3;
+        rule11.install := true;    
+    
+        send_rule(rule9, switch5_id);
+        send_rule(rule10, switch5_id);    
+        send_rule(rule11, switch5_id);        
+        barrier(switch5_id);
+        
+        rule12.port := 1;
+        rule12.protocol := rest;
+        rule12.priority := 5;
+        rule12.forward_port := 2; 
+        rule12.install := true;
+
+        send_rule(rule12, switch6_id);
+        barrier(switch6_id);
+    endswitch;
+    
+    forward(packet, packet.port, which_switch);
+  else
+    put "Control error: receive a packet from switch ";
+    put which_switch;
+    error "Control error: receive an unknown packet!\n";
+  endif;
+  
+end;
+{{/controller_procs}}
+
+
+{{#client_procs}}
+--------------------------------------------------------------------------
+
+-- client dequeue
+
+--------------------------------------------------------------------------
+
+procedure client_packet_received(packet: data_packet_t; which_client: Client_ids);
+  var new_p: data_packet_t;
+begin
+  switch which_client
+  case firewall1_id:
+    new_p.src := packet.src;
+    new_p.dest := packet.dest;
+    new_p.protocol := packet.protocol;
+    new_p.port := 2;
+    new_p.state := FW;
+    enqueue_data(new_p, switches[switch2_id].data_queue);
+  
+  case firewall2_id:
+    new_p.src := packet.src;
+    new_p.dest := packet.dest;
+    new_p.protocol := packet.protocol;
+    new_p.port := 3;
+    new_p.state := FW;
+    enqueue_data(new_p, switches[switch3_id].data_queue);
+  
+  case ids_id:
+    new_p.src := packet.src;
+    new_p.dest := packet.dest;
+    new_p.protocol := packet.protocol;
+    new_p.port := 4;
+    new_p.state := IDS;
+    enqueue_data(new_p, switches[switch5_id].data_queue);
+  
+  case proxy_id:
+    new_p.src := packet.src;
+    new_p.dest := packet.dest;
+    new_p.protocol := packet.protocol;
+    new_p.port := 3;
+    new_p.state := Proxy;
+    enqueue_data(new_p, switches[switch2_id].data_queue);
+  
+  case client2_id:
+    -- put "Received packet from: ";
+    -- put packet.src;
+    -- put "\n";
+    
+    if (packet.protocol = http & packet.state != Proxy) | 
+       (packet.protocol = rest & packet.state != IDS) then
+      invariant_failed := true;
+    endif;
+  endswitch;
+end;
+
+--------------------------------------------------------------------------
+
+-- client queue
+
+--------------------------------------------------------------------------
+
+procedure client_send_packet(src_client: Client_ids; which_switch: Switch_ids; protocol: protocol_t);
+  var packet: data_packet_t;
+begin
+    packet.src := src_client;
+    packet.dest := client2_id;
+    packet.port := 1;
+    packet.state := Nil;
+    packet.protocol := protocol;
+    enqueue_data(packet, switches[which_switch].data_queue);
+end;
+
+{{/client_procs}}
+
+{{#controller_client_startstate}}
+  for c: Client_ids do
+    for p: protocol_t do
+      if c != firewall1_id & c != firewall2_id & c != ids_id & c != proxy_id & c != client2_id then
+        client_send_packet(c, switch2_id, p);
+        client_send_packet(c, switch3_id, p);
+      endif;
+    endfor;
+  endfor;
+
+  invariant_failed := false;
+{{/controller_client_startstate}}
+
+{{#invariant}}
+  !invariant_failed;
+{{/invariant}}

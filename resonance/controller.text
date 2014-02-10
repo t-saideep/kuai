@@ -1,0 +1,431 @@
+{{#packet_decls}}
+type ip_port_t: 1..2; -- 1: http, 2: other
+type status_t: enum { Init, Reply };
+{{/packet_decls}}
+
+{{#controller_client_decls}}
+
+type state_t : enum { Registration, Authenticated, Operation, Quarantined };
+
+var state_table: Array [Client_ids] of state_t;
+
+var invariant_failed : boolean;
+
+var portal_packet: data_packet_t;
+var scanner_packet: data_packet_t;
+
+{{/controller_client_decls}}
+
+{{#check_forwarded_packet}}
+procedure check_forwarded_packet(packet: data_packet_t);
+begin
+  if ! ((isundefined(state_table[client1_id]) | (state_table[client1_id] = Quarantined -> (isundefined(packet.src) |  packet.src != client1_id))) &
+      (isundefined(state_table[client2_id]) | (state_table[client2_id] = Quarantined -> (isundefined(packet.src) | packet.src != client2_id)))) then
+    invariant_failed := true;
+  endif;
+end;
+{{/check_forwarded_packet}}
+
+{{#controller_procs}}
+function get_port(dest: Client_ids; sw: Switch_ids): port_t;
+begin
+  if dest != portal_id & dest != scanner_id then
+    switch dest
+      case client1_id:
+        switch sw
+          case switch1_id: return 1;
+          case switch2_id: return 1;
+          case switch3_id: return 1;
+          case switch4_id: return 1;
+        endswitch;
+      else        -- all other clients are connected to switch 3
+        switch sw
+          case switch1_id: return 3;
+          case switch2_id: return 4;
+          case switch3_id: return switch_port_of_client(dest);
+          case switch4_id: return 2;
+        endswitch;
+    endswitch;
+  else 
+    error "get_port()'s dest should not be portal or scanner";
+  endif;
+end;
+
+function get_port_to_portal(sw: Switch_ids): port_t;
+begin
+  switch sw
+    case switch1_id: return 2;
+    case switch2_id: return 2;
+    case switch3_id: return 2;
+    case switch4_id: return 2;
+  endswitch;
+end;
+
+function get_port_to_scanner(sw: Switch_ids): port_t;
+begin
+  switch sw
+    case switch1_id: return 2;
+    case switch2_id: return 3;
+    case switch3_id: return 2;
+    case switch4_id: return 2;
+  endswitch;
+end;
+
+--------------------------------------------------------------------------
+
+-- controller
+
+--------------------------------------------------------------------------
+
+procedure controller(packet: data_packet_t; which_switch: Switch_ids);
+  var rule1 : rule_t;
+  var rule2 : rule_t;
+  var rule3 : rule_t;
+begin
+  init_rule(rule1);
+  init_rule(rule2);
+  init_rule(rule3);
+  
+  if isundefined(state_table[packet.src]) & (packet.src != portal_id & packet.src != scanner_id) then
+    state_table[packet.src] := Registration;
+    
+    rule1.src := packet.src;
+    rule1.dest_port := 1;
+    rule1.priority := 5;
+    rule1.forward_port := get_port_to_portal(which_switch); 
+    rule1.install := true;
+    
+    rule2.src := portal_id;
+    rule2.dest := packet.src;
+    rule2.dest_port := 1;
+    rule2.priority := 5;
+    rule2.forward_port := get_port(packet.src, which_switch);
+    rule2.install := true;
+
+    rule3.src := packet.src;
+    rule3.priority := 1;
+    rule3.forward_port := -1;
+    rule3.install := true;
+
+    for ss:Switch_ids do
+      send_rule(rule1, ss);
+      send_rule(rule2, ss);
+      send_rule(rule3, ss);
+      barrier(ss);
+    endfor;
+    
+    forward(packet, get_port_to_portal(which_switch), which_switch);
+  else
+    --put "packet.src = "; put packet.src; put "\n";
+    --put "packet.dest = "; put packet.dest; put "\n";
+    --put "which_switch = "; put which_switch; put "\n";
+    error "Should not reach here!";
+  endif;
+end;
+
+procedure change_from_registration_to_authenticated(client: Client_ids);
+  var rule1 : rule_t;
+  var rule2 : rule_t;
+  var rule3 : rule_t;
+begin
+  init_rule(rule1);
+  init_rule(rule2);
+  init_rule(rule3);
+
+  for ss:Switch_ids do
+    rule1.src := client;
+    rule1.dest := scanner_id;
+    rule1.priority := 5;
+    rule1.forward_port := get_port_to_scanner(ss);
+    rule1.install := true;
+    
+    rule2.src := scanner_id;
+    rule2.dest := client;
+    rule2.priority := 5;    
+    rule2.forward_port := get_port(client, ss); 
+    rule2.install := true;
+
+    rule3.src := client;
+    rule3.dest_port := 1;
+    rule3.priority := 5;
+    rule3.forward_port := get_port_to_portal(ss); 
+    rule3.install := false;
+
+    send_rule(rule3, ss);
+    send_rule(rule1, ss);
+    send_rule(rule2, ss);
+--    put "change_from_registration_to_authenticated\n";
+    barrier(ss);
+  endfor;
+end;
+
+procedure change_from_registration_to_quarantined(client: Client_ids) ;
+  var rule1 : rule_t;
+begin
+  init_rule(rule1);
+
+  for ss:Switch_ids do
+    rule1.src := client;
+    rule1.dest_port := 1;
+    rule1.priority := 5;
+    rule1.forward_port := get_port_to_portal(ss); 
+    rule1.install := false;
+
+    send_rule(rule1, ss);
+--    put "change_from_registration_to_quarantined\n";
+    barrier(ss);
+  endfor;
+end;
+
+procedure change_from_authenticated_to_operation(client: Client_ids);
+  var rule1 : rule_t;
+  var rule2 : rule_t;
+begin
+  init_rule(rule1);
+  init_rule(rule2);
+
+  for ss:Switch_ids do
+    for dest: Client_ids do
+      if dest != client & (dest = client1_id | dest = client2_id) then
+        rule1.src := client;
+        rule1.dest := dest;	    
+        rule1.priority := 5;
+        rule1.forward_port := get_port(dest, ss);
+        rule1.install := true;
+
+        rule2.src := client;
+        rule2.dest := scanner_id;
+        rule2.priority := 5;
+        rule2.forward_port := get_port_to_scanner(ss);
+        rule2.install := false;
+    
+
+        send_rule(rule2, ss);
+        send_rule(rule1, ss);
+--        put "change_from_authenticated_to_operation for ss = "; put ss; put "\n";
+        barrier(ss); 
+      endif;
+    endfor;
+  endfor;
+end;
+
+procedure change_from_authenticated_to_quarantined(client: Client_ids);
+  var rule1 : rule_t;
+begin
+  init_rule(rule1);
+
+  for ss:Switch_ids do
+    rule1.src := client;
+    rule1.dest := scanner_id;
+    rule1.priority := 5;
+    rule1.forward_port := get_port_to_scanner(ss);
+    rule1.install := false;
+    
+    send_rule(rule1, ss);
+--    put "change_from_authenticated_to_quarantined";
+    barrier(ss);
+  endfor;
+end;
+
+procedure change_from_operation_to_quarantined(client : Client_ids);
+  var rule1 : rule_t;
+begin
+  init_rule(rule1);
+
+  for ss:Switch_ids do
+    for dest: Client_ids do
+      if dest != client & (dest = client1_id | dest = client2_id) then
+        rule1.src := client;
+        rule1.dest := dest;
+        rule1.priority := 5;
+        rule1.forward_port := get_port(dest, ss);
+        rule1.install := false;
+        
+        send_rule(rule1, ss);
+--        put "change_from_operation_to_quarantined";
+        barrier(ss); 
+      endif;
+    endfor;
+  endfor;
+end;
+
+procedure set_client_state(client:Client_ids; state: state_t; commander:Client_ids);
+  var new_p : data_packet_t;
+begin
+  switch state_table[client]
+    case Registration:
+      if commander = portal_id then
+        switch state
+          case Authenticated:
+            change_from_registration_to_authenticated(client);
+            new_p.src := scanner_id;
+            new_p.src_port := 1;
+            new_p.dest := client;
+            new_p.dest_port := 1;
+            new_p.status := Init;
+            new_p.port := 3;
+            enqueue_data(new_p, switches[switch2_id].data_queue);
+            state_table[client] := state;          
+          case Quarantined:
+            change_from_registration_to_quarantined(client);
+            state_table[client] := state;
+        endswitch;
+      endif;
+    case Authenticated:
+      if commander = scanner_id then
+        switch state
+          case Operation:
+            change_from_authenticated_to_operation(client);
+            state_table[client] := state;
+          case Quarantined:
+            change_from_authenticated_to_quarantined(client);
+            state_table[client] := state;
+        endswitch;        
+      endif;
+    case Operation:
+      if commander = scanner_id then
+        switch state
+          case Quarantined:
+            change_from_operation_to_quarantined(client);
+            state_table[client] := state;
+        endswitch;
+      endif;
+  endswitch;
+end;
+{{/controller_procs}}
+
+{{#controller_client_rules}}
+
+rule "portal recvs a data pkt from some client" 
+  !isundefined(portal_packet.src) | (!isundefined(portal_packet.status) & portal_packet.status = Init)
+==>
+  var new_p : data_packet_t;
+begin
+  new_p.src := portal_id;
+  new_p.src_port := portal_packet.dest_port;
+  new_p.dest := portal_packet.src;
+  new_p.dest_port := portal_packet.src_port;
+  new_p.status := Init;
+  new_p.port := 2;
+
+  enqueue_data(new_p, switches[switch2_id].data_queue);
+  Undefine portal_packet;
+end;
+
+rule "portal recvs a reply pkt from some client, set client's state to Authenticated" 
+  !isundefined(portal_packet.status) & portal_packet.status = Reply     
+==>
+begin
+  set_client_state(portal_packet.src, Authenticated, portal_id);
+  Undefine portal_packet;
+end;
+
+rule "portal recvs a reply pkt from some client, set client's state to Quarantined" 
+  !isundefined(portal_packet.status) & portal_packet.status = Reply     
+==>
+begin
+  set_client_state(portal_packet.src, Quarantined, portal_id);
+  Undefine portal_packet;
+end;
+
+rule "scanner recvs a reply pkt from some client, set client's state to Operation"
+  !isundefined(scanner_packet.status) & scanner_packet.status = Reply
+==>
+  set_client_state(scanner_packet.src, Operation, scanner_id);
+  Undefine scanner_packet;
+end;
+    
+rule "scanner recvs a reply pkt from some client, set client's state to Quarantined"
+  !isundefined(scanner_packet.status) & scanner_packet.status = Reply
+==>
+  set_client_state(scanner_packet.src, Quarantined, scanner_id);
+  Undefine scanner_packet;
+end;
+
+ruleset client : Client_ids do
+  rule "monitor"
+    !isundefined(state_table[client]) & state_table[client] = Operation
+  ==>
+    set_client_state(client, Quarantined, scanner_id);
+  end;
+end;
+
+{{/controller_client_rules}}
+
+{{#client_procs}}
+--------------------------------------------------------------------------
+
+-- client dequeue
+
+--------------------------------------------------------------------------
+procedure client_packet_received(packet: data_packet_t; which_client: Client_ids);
+  var new_p : data_packet_t;
+begin
+  switch which_client
+  case portal_id:
+    portal_packet := packet;
+  case scanner_id:
+    scanner_packet := packet;
+  -- one of the clients
+  else
+    if packet.status = Init then
+      new_p.src := packet.dest;
+      new_p.src_port := packet.dest_port;
+      new_p.dest := packet.src;
+      new_p.dest_port := packet.src_port;
+      new_p.port := switch_port_of_client(client1_id);
+      new_p.status := Reply;
+      enqueue_data(new_p, switches[switch_of_client(which_client)].data_queue);
+    endif;
+  endswitch;
+end;
+
+--------------------------------------------------------------------------
+
+-- client queue
+
+--------------------------------------------------------------------------
+
+procedure prepare_packet(var packet:data_packet_t; src: Client_ids; src_port:ip_port_t; dest: Client_ids; dest_port: ip_port_t);
+begin
+  packet.src := src;
+  packet.src_port := src_port;
+  packet.dest := dest;
+  packet.dest_port := dest_port;
+  packet.port := switch_port_of_client(src);
+  packet.status := Init;
+end;
+
+procedure client_send_packet(src_client: Client_ids; src_port: port_t; dest_client: Client_ids; dest_port: port_t);
+var packet: data_packet_t;
+begin
+  prepare_packet(packet, src_client, src_port, dest_client, dest_port);
+  enqueue_data(packet, switches[switch_of_client(src_client)].data_queue);
+end;
+
+{{/client_procs}}
+
+{{#controller_client_startstate}}
+  for client: Client_ids do
+    Undefine state_table[client];
+  end;
+
+  for src: Client_ids do
+    for dest: Client_ids do
+      for p: ip_port_t do
+        if can_communicate(src, dest) 
+            & (src != dest & src != portal_id & src != scanner_id & dest != portal_id & dest != scanner_id) then
+          client_send_packet(src, p, dest, p);
+        endif;
+      endfor;
+    endfor;
+  endfor;
+  
+  invariant_failed := false;
+  Undefine portal_packet;
+  Undefine scanner_packet;
+{{/controller_client_startstate}}
+
+{{#invariant}}
+  !invariant_failed;
+{{/invariant}}
